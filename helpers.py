@@ -2,8 +2,8 @@
 Author: Naixin && naixinguo2-c@my.cityu.edu.hk
 Date: 2023-08-15 14:09:12
 LastEditors: Naixin && naixinguo2-c@my.cityu.edu.hk
-LastEditTime: 2023-08-24 12:29:26
-FilePath: /trylab/factor-ident/helpers.py
+LastEditTime: 2023-08-30 15:29:08
+FilePath: /trylab/sim2emp/helpers.py
 Description:
 
 '''
@@ -42,7 +42,6 @@ def PRESS_statistic(r, X):
     float
         Average PRESS statistic across all response variables.
     """
-
     # Compute regression coefficients
     beta = np.linalg.inv(X.T @ X) @ X.T @ r
 
@@ -195,7 +194,28 @@ def svd_convex_optimization(Z, svd_C, knum):
     result = problem.solve()
     # Return the optimal value and the optimal Gamma
     return result, Gamma.value
-
+def svd_convex_optimization_zj(Z, svd_C, knum):
+    # Define the dimensions of the matrices
+    n, p = Z.shape
+    # SVD Z and define the knum principal components
+    U = np.linalg.svd(Z)[0][:,:knum]
+    #add ones columns
+    Z1 = np.ones((n,p+1))
+    Z1[:,1:] = Z
+    # Define the optimization variable Gamma
+    Gamma = cp.Variable((p+1, knum))
+    # Define the objective function
+    objective = cp.Minimize(cp.norm(U - Z1 @ Gamma, 'fro')**2)
+    # Define the constraint
+    constraints = [
+        cp.sum(cp.norm(Gamma[1:,:], 2, axis=1))<=svd_C
+    ]
+    # Define the optimization problem
+    problem = cp.Problem(objective, constraints)
+    # Solve the optimization problem
+    result = problem.solve()
+    # Return the optimal value and the optimal Gamma
+    return result, Gamma.value[1:,:]
 def col_norms(Z):
     """
     Calculate the column norms of Z.
@@ -219,6 +239,15 @@ def normalize_columns(A):
     
     # Normalize the columns of A    
     return A / norms
+
+def standardize_columns(A):
+    # Calculate the mean of the columns of A
+    means = np.mean(A, axis=0)
+    #calculate the standard deviation of the columns of A
+    sigmas = np.std(A, axis=0)
+    
+    # Normalize the columns of A    
+    return (A-means) / sigmas
 
 
 
@@ -248,6 +277,15 @@ def chosen_set_with_press(Gammavalue,nonzero,Znorm):
     # hand_ssr = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,chosen_set]) for i in np.setdiff1d(range(p),chosen_set)])
     return chosen_set,hand_ssr
 
+def chosen_set_with_press_zj(Gammavalue,nonzero,Zstandard):
+    n,p= Zstandard.shape
+    chosen_set = list(np.argsort(-np.round(cp.norm(Gammavalue, 2, axis=1).value,6))[:nonzero])
+    Zstandard1 = np.ones((n,nonzero+1))
+    Zstandard1[:,1:] = Zstandard[:,chosen_set]
+    hand_ssr = np.mean([PRESS_statistic(Zstandard[:,i],Zstandard1) for i in np.setdiff1d(range(p),chosen_set)])
+    
+    # hand_ssr = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,chosen_set]) for i in np.setdiff1d(range(p),chosen_set)])
+    return chosen_set,hand_ssr
 
 def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]], fix_true = None,fix_false = None,hyper_p = None):
     
@@ -271,6 +309,7 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
         SSR = 999
         final_knum = 0
         final_chosen_set = []
+        knum_chosen_set = []
         cv_ssr = SSR-1
         final_svd_C  = 0
         
@@ -313,12 +352,12 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
                     
                     
                     chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,knum,Znorm)
-                    #chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,nonzero,Znorm)
+                    # chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,nonzero,Znorm)
                     
                     # chosen_set,hand_ssr=chosen_set_with_press(Gammavalue,nonzero,Znorm_train,Znorm_test)
                   
                
-                print('chosen_set',chosen_set,'cv_ssr',cv_ssr)
+                # print('chosen_set',chosen_set,'cv_ssr',cv_ssr)
                 
                     # print('knum',knum,chosen_set)
                 if cv_ssr<SSR:
@@ -327,12 +366,28 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
                    
                     final_knum = knum
                     final_svd_C = svd_C_i
-   
+            
                     # print('knum',final_knum,'by hand', SSR ,svd_C_i)
     # return SSR,final_chosen_set,final_knum,final_svd_C
-    
-    hand_ssr = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,[0,1,2,3,4]]) for i in np.setdiff1d(range(p),[0,1,2,3,4])])
-    print('[0,1,2,3,4]:', hand_ssr)
+            if  len(knum_chosen_set)==0:
+                knum_chosen_set = final_chosen_set
+            elif len(final_chosen_set) >= len(knum_chosen_set):
+                union_set = list(set(final_chosen_set).union(knum_chosen_set))
+                check_set = np.setdiff1d(range(p),union_set)
+                check_press1 =np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,final_chosen_set]) for i in check_set ])
+                check_press2 = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,knum_chosen_set]) for i in check_set ])
+                print(final_chosen_set,'check_press1 ',check_press1 ,knum_chosen_set,'check_press2',check_press2 )
+                if check_press1<check_press2:
+                    knum_chosen_set = final_chosen_set
+                # else:
+                # # regret to last knum chosen_set and ssr
+                #     SSR = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,knum_chosen_set]) for i in np.setdiff1d(range(p),knum_chosen_set)])
+                #     final_chosen_set = knum_chosen_set 
+                    
+                print('knum',knum,knum_chosen_set)
+                
+    # hand_ssr = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,[0,1,2,3,4]]) for i in np.setdiff1d(range(p),[0,1,2,3,4])])
+    # print('[0,1,2,3,4]:', hand_ssr)
     
     Zk, Theta_tru, svd_C_hand = compute_k_truncated_svd(Znorm, knum) 
     hand_svd_C= svd_C_hand*.5
@@ -343,7 +398,104 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
     
     chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,p,Znorm)
     
-    return final_chosen_set,SSR,final_svd_C,hand_chosen_set,hand_ssr,hand_svd_C
+    return knum_chosen_set,SSR,final_svd_C,hand_chosen_set,hand_ssr,hand_svd_C
+
+
+def choose_factor_zj(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]], fix_true = None,fix_false = None,hyper_p = None):
+    
+    Z = Z[:train_size]
+    Zstandard = standardize_columns(Z)
+    # Zstandard = normalize_columns(Zstandard)
+    n, p = Z.shape
+    # SVD Z and define the knum principal components
+    Handssr = []
+    if method == 'SGL':
+       
+        chosen_set =[]
+        knum_list = np.array([Knum-2,Knum-1,Knum,Knum+1,Knum+2])
+        # knum_list = np.array([Knum])
+        svd_C_list = np.linspace(0, 1, 30)
+    
+        
+        SSR = 999
+        final_knum = 0
+        final_chosen_set = []
+        knum_chosen_set = []
+        cv_ssr = SSR-1
+        final_svd_C  = 0
+        
+      
+        for knum in knum_list:
+            for svd_C_i in svd_C_list:
+                if asset[0][0]:
+                    asset = asset[:train_size]
+                    asset = normalize_columns(asset)
+            
+                    U = get_U(np.hstack((Zstandard,asset)), knum)
+               
+                else:
+                    U = get_U(Zstandard, knum)
+                    
+                Gammavalue = svd_convex_optimization_zj(Zstandard, svd_C_i, knum)[1]
+                
+                ###########
+                
+                if fix_true:
+                    Gammavalue[fix_true] = np.ones((knum))*100 
+                if fix_false:
+                    Gammavalue[fix_false] = np.zeros((knum)) 
+                
+                nonzero = np.count_nonzero(np.round(cp.norm(Gammavalue, 2, axis=1).value,4))
+                if nonzero == 0:
+                    pass
+                elif  0<nonzero<knum :
+              
+                    chosen_set,cv_ssr= chosen_set_with_press_zj(Gammavalue,nonzero,Zstandard)
+                elif nonzero >= knum:
+                  
+                    chosen_set,cv_ssr= chosen_set_with_press_zj(Gammavalue,knum,Zstandard)
+        
+                if cv_ssr<SSR:
+                    SSR = cv_ssr
+                    final_chosen_set =  chosen_set
+                   
+                    final_knum = knum
+                    final_svd_C = svd_C_i
+
+            if  len(knum_chosen_set)==0:
+                knum_chosen_set = final_chosen_set
+            elif len(final_chosen_set) >= len(knum_chosen_set):
+                union_set = list(set(final_chosen_set).union(knum_chosen_set))
+                check_set = np.setdiff1d(range(p),union_set)
+                
+                Zstandard1 = np.ones((n,len(final_chosen_set)+1))
+                Zstandard1[:,1:] = Zstandard[:,final_chosen_set]
+                
+                Zstandard2 = np.ones((n,len(knum_chosen_set)+1))
+                Zstandard2[:,1:] = Zstandard[:,knum_chosen_set]
+                
+                check_press1 =np.mean([PRESS_statistic(Zstandard[:,i],Zstandard1) for i in check_set ])
+                check_press2 = np.mean([PRESS_statistic(Zstandard[:,i],Zstandard2) for i in check_set ])
+                print(final_chosen_set,'check_press1',check_press1 ,knum_chosen_set,'check_press2',check_press2 )
+                
+                if check_press1<check_press2:
+                    knum_chosen_set = final_chosen_set
+       
+                print('knum',knum,knum_chosen_set)
+    # Zstandard0 =np.ones((n,5+1))
+    # Zstandard0[:,1:] = Zstandard[:,[0,1,2,3,4]]
+    # hand_ssr = np.mean([PRESS_statistic(Zstandard[:,i],Zstandard0[:,[0,1,2,3,4]]) for i in np.setdiff1d(range(p),[0,1,2,3,4])])
+    # print('[0,1,2,3,4]:', hand_ssr)
+    Zk, Theta_tru, svd_C_hand = compute_k_truncated_svd(Zstandard, knum) 
+    hand_svd_C= svd_C_hand*.5
+    
+    Gammavalue = svd_convex_optimization_zj(Zstandard, hand_svd_C, knum)[1]
+    
+    hand_chosen_set,hand_ssr= chosen_set_with_press_zj(Gammavalue,knum,Zstandard)
+    
+    chosen_set,cv_ssr= chosen_set_with_press_zj(Gammavalue,p,Zstandard)
+    
+    return knum_chosen_set,SSR,final_svd_C,hand_chosen_set,hand_ssr,hand_svd_C
 
 
 
