@@ -28,7 +28,9 @@ standard deviation of noise(mu_error):
 0.04144858
 
 ###################R#################
-
+k=5
+p=25
+n=600
 X = rmvnorm(n,mu_FF5,cov_FF51)
 BT = rmvnorm(p-k, mu1, cov1)
 for (m in 1:(p-k)) {
