@@ -1,11 +1,6 @@
 import numpy as np
 import pandas as pd
 
-from sklearn.datasets import make_regression
-from sklearn.multioutput import MultiOutputRegressor
-from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
 
 #reading dataset
 df96 = pd.read_csv('empirical_data/X_full.csv')
@@ -15,7 +10,7 @@ X = X / np.sqrt(np.sum(X**2, axis=0))
 R = np.corrcoef(X.T)
 idx = np.argsort(np.sum(np.abs(R), axis=0))[::-1]
 St = idx[:20]
-T = 10
+T = 100
 RSSwPenalty = np.zeros(T)
 Sseq = np.zeros((96, T))
 lambda_val = 2.5
@@ -23,10 +18,14 @@ sigma = 10
 
 def RSS(X, Y, S):
     X_subset = X.iloc[:, S]
-    model = MultiOutputRegressor(LinearRegression())
-    model.fit(X_subset, Y)
-    Y_pred = model.predict(X_subset)
-    residuals = Y - Y_pred
+    X_array = X_subset.values
+    Y_array = Y.values
+    Xt = X_array.T
+    XtX = np.dot(Xt, X_array)
+    XtY = np.dot(Xt, Y_array)
+    b = np.linalg.solve(XtX, XtY)
+    Y_pred = X_subset@b
+    residuals = Y_array - Y_pred
     rss = np.sum(np.sum(residuals**2))
     return rss
 
@@ -46,6 +45,8 @@ plt.plot(RSSwPenalty)
 plt.plot(np.sum(Sseq, axis=0))
 sridx = np.argmax(RSSwPenalty)
 Sopt = np.where(Sseq[:, sridx])[0]
-RSS(X, X, Sopt)
+column_name = X.columns[Sopt]
+print("Selected factors:", column_name)
+print("RSS of the selected variables:", RSS(X,X,Sopt))
 Ssort = idx[:len(Sopt)]
-RSS(X, X, Ssort)
+print("RSS by greedy selection with the same size as our selection:", RSS(X,X,Ssort))
