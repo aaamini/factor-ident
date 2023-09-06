@@ -13,8 +13,8 @@ St = idx[:20]
 T = 10000
 RSSwPenalty = np.zeros(T)
 Sseq = np.zeros((96, T))
-lambda_val = 0.5
-sigma = 100
+lambda_val = 0.45
+sigma = 200
 
 def alpha(X, Y, S):
     X_subset = X.iloc[:, S]
@@ -29,7 +29,9 @@ def alpha(X, Y, S):
     mean = np.mean(residuals, axis=0)
     std = np.std(residuals, axis=0)
     t_score =  mean / std 
-    abs_sum_t = np.sum(np.abs(t_score))
+    mask = np.ones_like(t_score, dtype=bool)
+    mask[S] = False
+    abs_sum_t = np.sum(np.abs(t_score[mask]))
     return abs_sum_t
 
 for t in range(T):
