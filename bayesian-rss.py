@@ -1,3 +1,12 @@
+'''
+Author: Naixin && naixinguo2-c@my.cityu.edu.hk
+Date: 2023-09-06 22:48:49
+LastEditors: Naixin && naixinguo2-c@my.cityu.edu.hk
+LastEditTime: 2023-09-07 00:18:42
+FilePath: /trylab/factor-ident/bayesian-rss.py
+Description: 
+
+'''
 import numpy as np
 import pandas as pd
 
@@ -10,10 +19,10 @@ X = X / np.sqrt(np.sum(X**2, axis=0))
 R = np.corrcoef(X.T)
 idx = np.argsort(np.sum(np.abs(R), axis=0))[::-1]
 St = idx[:20]
-T = 100
+T = 1000000
 RSSwPenalty = np.zeros(T)
 Sseq = np.zeros((96, T))
-lambda_val = 2.5
+lambda_val = 2
 sigma = 10
 
 def RSS(X, Y, S):

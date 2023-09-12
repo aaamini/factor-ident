@@ -2,7 +2,7 @@
 Author: Naixin && naixinguo2-c@my.cityu.edu.hk
 Date: 2023-08-15 14:09:12
 LastEditors: Naixin && naixinguo2-c@my.cityu.edu.hk
-LastEditTime: 2023-09-01 12:48:48
+LastEditTime: 2023-09-12 10:09:49
 FilePath: /trylab/factor-ident/helpers.py
 Description:
 
@@ -22,6 +22,8 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
 from joblib import Parallel,delayed
 import random
+import heapq
+import itertools
 import pandas as pd
 import warnings
 import cvxpy as cp
@@ -289,7 +291,7 @@ def chosen_set_with_press_zj(Gammavalue,nonzero,Zstandard):
     return chosen_set,hand_ssr
 
 def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]], fix_true = None,fix_false = None,hyper_p = None):
-    
+   
     Z = Z[:train_size]
     Znorm = normalize_columns(Z)
     n, p = Z.shape
@@ -301,8 +303,8 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
         # Znorm = np.array([Znorm[:,i] for i in shuffle_list]).T
         chosen_set =[]
         Znorm_train,Znorm_test = train_test(Znorm,train_size*3//5)
-        knum_list = np.array([Knum-2,Knum-1,Knum,Knum+1,Knum+2])
-        # knum_list = np.array([Knum])
+        # knum_list = np.array([Knum-2,Knum-1,Knum,Knum+1,Knum+2])
+        knum_list = np.array([Knum])
         svd_C_list = np.linspace(0, 1, 30)
         # svd_C_list = [1]
         # knum_list = np.array([Knum])
@@ -386,22 +388,69 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
                 #     final_chosen_set = knum_chosen_set 
                     
                 print('knum',knum,knum_chosen_set)
+        Zk, Theta_tru, svd_C_hand = compute_k_truncated_svd(Znorm, knum) 
+        hand_svd_C= svd_C_hand*.5
+        
+        Gammavalue = svd_convex_optimization(Znorm, hand_svd_C, knum)[1]
+        
+        hand_chosen_set,hand_ssr= chosen_set_with_press(Gammavalue,knum,Znorm)
+        
+        chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,p,Znorm)
+        
+        return knum_chosen_set,SSR,final_svd_C,hand_chosen_set,hand_ssr,hand_svd_C
+    elif method == 'TSMS': 
+        
+        for knum in range(2,p//2):  
+            
+            if asset[0][0]:
+                asset = asset[:train_size]
+                asset = normalize_columns(asset)
+                U = np.linalg.svd(np.hstack((Z,asset)))[0][:,:knum]
+            else:
+                U = get_U(Z, knum)
+            chosen_set =[]
+            l2_distance = np.zeros(p)
+            Bhat = np.linalg.lstsq(U[:,:knum],Z, rcond=None)[0]
+            Mhat = U[:,:knum]@Bhat
+            l2_distance = np.linalg.norm(Mhat-Z,axis = 0)
+            if fix_true:
+                l2_distance[fix_true] = np.zeros(len(fix_true))
+            if fix_false:
+                l2_distance[fix_false] = np.ones(len(fix_false))*100
+            chosen_num = heapq.nsmallest(knum,l2_distance)
+            
+            
+            for t in chosen_num:
+                index = list(l2_distance).index(t)
+                chosen_set.append(index)
+                l2_distance[index]= -1 #give a value that it wont be chosen again
+            # print(chosen_set) 
+            Y = Z[:,list(set(range(p)).difference(chosen_set))]
+            Xj = Z[:,chosen_set]
+            Xi = Z[:,chosen_set[:-1]]
+            ssri = round(sum(np.linalg.lstsq(Xi,Y, rcond=None)[1]),9)
+            ssrj = round(sum(np.linalg.lstsq(Xj,Y, rcond=None)[1]),9)
+            f_test = (ssri- ssrj)/ (ssrj/(n-knum))
+            p_value = 1 - scipy.stats.f.cdf(f_test,1, n-knum)
+            # print(chosen_set)
+            if  p_value > hyper_p:
+                mutistep_chosen = list(itertools.combinations(chosen_set, knum-1))
+                for i in mutistep_chosen:
+                    ssri_try = round(sum(np.linalg.lstsq(Z[:,i],Y, rcond=None)[1]),9)
+                    if ssri_try <= ssri:
+                        chosen_set = list(i)
+                        ssri = ssri_try
+            f_test = (ssri- ssrj)/ (ssrj/(n-knum))           
+            p_value = 1 - scipy.stats.f.cdf(f_test,1, n-knum)
+            
+            if p_value  > hyper_p:
                 
+                return chosen_set
+               
     # hand_ssr = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,[0,1,2,3,4]]) for i in np.setdiff1d(range(p),[0,1,2,3,4])])
     # print('[0,1,2,3,4]:', hand_ssr)
     
-    Zk, Theta_tru, svd_C_hand = compute_k_truncated_svd(Znorm, knum) 
-    hand_svd_C= svd_C_hand*.5
     
-    Gammavalue = svd_convex_optimization(Znorm, hand_svd_C, knum)[1]
-    
-    hand_chosen_set,hand_ssr= chosen_set_with_press(Gammavalue,knum,Znorm)
-    
-    chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,p,Znorm)
-    
-    return knum_chosen_set,SSR,final_svd_C,hand_chosen_set,hand_ssr,hand_svd_C
-
-
 def choose_factor_zj(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]], fix_true = None,fix_false = None,hyper_p = None):
     
     Z = Z[:train_size]
