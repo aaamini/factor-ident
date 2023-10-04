@@ -1,3 +1,12 @@
+'''
+Author: Naixin && naixinguo2-c@my.cityu.edu.hk
+Date: 2023-09-07 11:21:29
+LastEditors: Naixin && naixinguo2-c@my.cityu.edu.hk
+LastEditTime: 2023-09-18 18:06:10
+FilePath: /trylab/factor-ident/bayesian-alpha.py
+Description: 
+
+'''
 import numpy as np
 import pandas as pd
 
