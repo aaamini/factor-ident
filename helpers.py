@@ -2,7 +2,7 @@
 Author: Naixin && naixinguo2-c@my.cityu.edu.hk
 Date: 2023-08-15 14:09:12
 LastEditors: Naixin && naixinguo2-c@my.cityu.edu.hk
-LastEditTime: 2023-10-06 21:53:00
+LastEditTime: 2023-10-10 17:00:06
 FilePath: /trylab/grp_journal/helpers.py
 Description:
 
@@ -288,7 +288,7 @@ def  Znew1_convex_optimization(Z, svd_C, knum, St):
 
     for i in range(1):
      
-        objective = cp.Minimize(cp.norm( Z@Sigma_half_inv - Z @ Gamma @ Sigma_half_inv , 'fro')**2)
+        objective = cp.Minimize(cp.norm( Sigma_half_inv @ Z.T - Sigma_half_inv @ Gamma.T @ Z.T  , 'fro')**2)
         # Define the constraint
         constraints = [
             cp.sum(cp.norm(Gamma, 2, axis=1))<=svd_C
@@ -332,7 +332,7 @@ def  Znew2_convex_optimization(Z, svd_C, knum, St):
     for _ in range(1):    
        
         Sigma_inv = np.linalg.pinv(Sigma)
-        objective = cp.Minimize(cp.norm( Z@Sigma_half_inv - Z @ Gamma @ Sigma_half_inv - alpha@ Sigma_half_inv, 'fro')**2 + alpha @ Sigma_inv @ alpha.T)
+        objective = cp.Minimize(cp.norm(Sigma_half_inv @ Z.T - Sigma_half_inv @ Gamma.T @ Z.T  - Sigma_half_inv@alpha, 'fro')**2 + alpha @ Sigma_inv @ alpha.T)
         # Define the constraint
         constraints = [
             cp.sum(cp.norm(Gamma, 2, axis=1))<=svd_C
