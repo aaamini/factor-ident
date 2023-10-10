@@ -2,12 +2,11 @@
 Author: Naixin && naixinguo2-c@my.cityu.edu.hk
 Date: 2023-08-15 14:09:12
 LastEditors: Naixin && naixinguo2-c@my.cityu.edu.hk
-LastEditTime: 2023-09-12 10:09:49
-FilePath: /trylab/factor-ident/helpers.py
+LastEditTime: 2023-10-06 21:53:00
+FilePath: /trylab/grp_journal/helpers.py
 Description:
 
 '''
-
 
 from sklearn.model_selection import KFold
 import numpy as np
@@ -135,7 +134,63 @@ def smallest_singular_value(A):
     
     # Return the smallest singular value
     return singular_values[-1]
+def sr(wt, mu, Sigma):
+    return (np.dot(wt, mu) ** 2) / np.dot(np.dot(wt, Sigma), wt)     
+def sr_best(X,lambda_val = 0.033, sigma = 500, T = 5000):  
+    init = 10
+    
+    # df = pd.read_csv('empirical_data/Fama285_22.csv')
+    # Y = df[df.columns[1:]]
+    #calculate sample mean and sample covariance matrix
+    mu = np.mean(X, axis=0)
+    Sigma = np.cov(X.T)
+    #solve the optimal MVE weight for all factors
+    wall = np.linalg.solve(Sigma, mu)
+    wall = wall / np.linalg.norm(wall)
+    idx = np.argsort(wall)[::-1]
+    #sort factors, from important for SR to less important
+    Ssort = idx[:X.shape[1]]
+    #select first 20 as initialization
+    St = idx[:init]
 
+    
+    #number of MH updates
+   
+    #record the value of sharpe ratio + penalty in each MH update
+    SRwPenalty = np.zeros(T)
+    srsrsr = np.zeros(T)
+    #record the subset selection in each MH update
+    Sseq = np.zeros((X.shape[1], T))
+    #An very important hyperparameter. Roughly speaking, if the variable can improve the SR by this value, then I can be selected.
+    # lambda_val = 0.06
+    
+    #If sigma is large, then the MH updates are more stable. 
+    
+
+    for t in range(T):
+        #randomly select a variable to update
+        i = np.random.randint(X.shape[1])
+        #update the new subset of selected variables
+        Snew = np.setdiff1d(np.union1d(i, St), np.intersect1d(i, St))
+        #find weight for MVE sharpe ratio w.r.t. St
+    
+        wt = np.linalg.solve(Sigma[St][:, St], mu[St])
+        #find weight for MVE sharpe ratio w.r.t. Snew
+        wnew = np.linalg.solve(Sigma[Snew][:, Snew], mu[Snew])
+        #Find the "likelihood" ratio. If Snew gives larger SR than St or Snew has less factors than St, then this value will be large. 
+        llhratio = np.exp(sigma * (sr(wnew, mu[Snew], Sigma[Snew][:, Snew]) - sr(wt, mu[St], Sigma[St][:, St]) - lambda_val * (len(Snew) - len(St))))
+        #MH update. 
+        random_num = np.random.rand()
+        if llhratio > random_num:
+            St = Snew
+        #record the selected factors in Sseq
+        Sseq[Snew, t] = 1
+        #record Sharpe ratio + penalty
+        SRwPenalty[t] = sr(wnew, mu[Snew], Sigma[Snew][:, Snew]) - lambda_val * len(Snew)
+        srsrsr[t] = sr(wnew, mu[Snew], Sigma[Snew][:, Snew])
+    print('sr_best',sr(wt, mu[St], Sigma[St][:, St]))
+    
+    return St
 def top_k_rows_indices(Theta_hat, k):
     """
     Return the indices of the top k rows with the highest l2 norms.
@@ -161,23 +216,6 @@ def tsms(Z, Zk, knum):
     ZZk_norms = col_norms(Z - Zk)
     return np.argsort(ZZk_norms)[:knum]
 
-
-# def svd_convex_optimization(Z, svd_C, U, knum):
-#     n, p = Z.shape
-#     Gamma = cp.Variable((p, knum))
-#     # Define the objective function
-#     # objective = cp.Minimize(cp.norm(U_train - Znorm_train @ Gamma, 'fro')**2)
-#     objective = cp.Minimize(cp.norm(U - Z @ Gamma, 'fro')**2)
-#     # Define the constraint
-#     constraints = [cp.sum(cp.norm(Gamma, 2, axis=1))<=svd_C]
-#     # Define the optimization problem
-#     problem = cp.Problem(objective, constraints)
-#     # Solve the optimization problem
-#     result = problem.solve()
-#     # Return the optimal value and the optimal Gamma
-#     Gammavalue = Gamma.value
-    
-#     return Gammavalue
 def svd_convex_optimization(Z, svd_C, knum):
     # Define the dimensions of the matrices
     n, p = Z.shape
@@ -186,6 +224,8 @@ def svd_convex_optimization(Z, svd_C, knum):
     # Define the optimization variable Gamma
     Gamma = cp.Variable((p, knum))
     # Define the objective function
+    #####################################################################################
+    # objective = cp.Minimize(cp.norm(U - Z @ Gamma, 'fro')**2)
     objective = cp.Minimize(cp.norm(U - Z @ Gamma, 'fro')**2)
     # Define the constraint
     constraints = [
@@ -197,28 +237,118 @@ def svd_convex_optimization(Z, svd_C, knum):
     result = problem.solve()
     # Return the optimal value and the optimal Gamma
     return result, Gamma.value
-def svd_convex_optimization_zj(Z, svd_C, knum):
+def Z_convex_optimization(Z, svd_C, knum, St):
     # Define the dimensions of the matrices
     n, p = Z.shape
-    # SVD Z and define the knum principal components
-    U = np.linalg.svd(Z)[0][:,:knum]
-    #add ones columns
-    Z1 = np.ones((n,p+1))
-    Z1[:,1:] = Z
+
     # Define the optimization variable Gamma
-    Gamma = cp.Variable((p+1, knum))
+    # Gamma = cp.Variable((p, p))
+    Z0 = Z[:,St]
+    Gamma0 =np.random.normal(0.001,0.01,(p,p))
+    Gamma0[St] = np.linalg.pinv(Z0.T@Z0)@Z0.T@Z
+    
+    Gamma = cp.Variable((p,p))
+    Gamma.value = Gamma0
     # Define the objective function
-    objective = cp.Minimize(cp.norm(U - Z1 @ Gamma, 'fro')**2)
+    #####################################################################################
+    # objective = cp.Minimize(cp.norm(U - Z @ Gamma, 'fro')**2)
+    objective = cp.Minimize(cp.norm(Z - Z @ Gamma, 'fro')**2)
     # Define the constraint
     constraints = [
-        cp.sum(cp.norm(Gamma[1:,:], 2, axis=1))<=svd_C
+        cp.sum(cp.norm(Gamma, 2, axis=1))<=svd_C
     ]
     # Define the optimization problem
     problem = cp.Problem(objective, constraints)
     # Solve the optimization problem
     result = problem.solve()
     # Return the optimal value and the optimal Gamma
-    return result, Gamma.value[1:,:]
+    return result, Gamma.value
+
+def  Znew1_convex_optimization(Z, svd_C, knum, St):
+    
+    # Define the dimensions of the matrices
+    n, p = Z.shape
+    mu0 = np.mean(Z, axis=0)
+    Sigma0 = np.cov(Z.T)
+    # Define the optimization variable Gamma
+    # Gamma = cp.Variable((p, p))
+    Z0 = Z[:,St]
+    Gamma0 =np.random.normal(0.001,0.01,(p,p))
+    Gamma0[St] = np.linalg.pinv(Z0.T@Z0)@Z0.T@Z
+    # Define the objective function
+    #####################################################################################
+    # objective = cp.Minimize(cp.norm(U - Z @ Gamma, 'fro')**2)
+    Gamma = cp.Variable((p,p))
+    Gamma.value = Gamma0
+    # Sigma = (Z-Z@Gamma0).T@(Z-Z@Gamma0)/n
+    Sigma = np.cov((Z-Z@Gamma0).T)
+      
+    S,U=np.linalg.eig(Sigma)
+    Sigma_half_inv =U@np.diag(np.sqrt(1/S))@U.T
+
+    for i in range(1):
+     
+        objective = cp.Minimize(cp.norm( Z@Sigma_half_inv - Z @ Gamma @ Sigma_half_inv , 'fro')**2)
+        # Define the constraint
+        constraints = [
+            cp.sum(cp.norm(Gamma, 2, axis=1))<=svd_C
+        ]
+        # Define the optimization problem
+        problem = cp.Problem(objective, constraints)
+        # Solve the optimization problem
+   
+        result = problem.solve(warm_start = True)
+        # Sigma = (Z-Z@Gamma.value).T@(Z-Z@Gamma.value)/n
+
+        Sigma = np.cov((Z-Z@Gamma.value).T)
+        S,U=np.linalg.eig(Sigma)
+        Sigma_half_inv =U@np.diag(np.sqrt(1/S))@U.T
+
+        
+        St0 = list(np.argsort(-np.round(cp.norm(Gamma.value, 2, axis=1).value,6))[:knum])
+        print('sr',i,St0, sr(np.linalg.solve(Sigma0[St0][:, St0], mu0[St0]), mu0[St0], Sigma0[St0][:, St0]))
+        print(np.linalg.norm(Gamma.value, axis=0))
+    # Return the optimal value and the optimal Gamma
+    return result, Gamma.value
+def  Znew2_convex_optimization(Z, svd_C, knum, St):
+    # Define the dimensions of the matrices
+    n, p = Z.shape
+    # Define the optimization variable Gamma
+    # Gamma = cp.Variable((p, p))
+    Z0 = Z[:,St]
+    Gamma0 =np.random.normal(0.001,0.01,(p,p))
+    Gamma0[St] = np.linalg.pinv(Z0.T@Z0)@Z0.T@Z
+    # Define the objective function
+    #####################################################################################
+    # objective = cp.Minimize(cp.norm(U - Z @ Gamma, 'fro')**2)
+    Gamma = cp.Variable((p,p))
+    alpha = cp.Variable((n,p))
+    Gamma.value = Gamma0
+    # Sigma = np.cov((Z-Z@Gamma0).T)
+    Sigma = (Z-Z@Gamma0).T@(Z-Z@Gamma0)/n
+    S,U=np.linalg.eig(Sigma)
+    Sigma_half_inv =U@np.diag(np.sqrt(1/S))@U.T
+
+    for _ in range(1):    
+       
+        Sigma_inv = np.linalg.pinv(Sigma)
+        objective = cp.Minimize(cp.norm( Z@Sigma_half_inv - Z @ Gamma @ Sigma_half_inv - alpha@ Sigma_half_inv, 'fro')**2 + alpha @ Sigma_inv @ alpha.T)
+        # Define the constraint
+        constraints = [
+            cp.sum(cp.norm(Gamma, 2, axis=1))<=svd_C
+        ]
+        # Define the optimization problem
+        problem = cp.Problem(objective, constraints)
+        # Solve the optimization problem
+        result = problem.solve(warm_start=True)
+        # Sigma = np.cov((Z-Z@Gamma.value-alpha.value).T)
+        Sigma = (Z-Z@Gamma.value-alpha.value).T@(Z-Z@Gamma.value-alpha.value)/n
+        S,U=np.linalg.eig(Sigma)
+        Sigma_half_inv =U@np.diag(np.sqrt(1/S))@U.T
+
+    # Return the optimal value and the optimal Gamma
+    return result, Gamma.value
+
 def col_norms(Z):
     """
     Calculate the column norms of Z.
@@ -280,16 +410,6 @@ def chosen_set_with_press(Gammavalue,nonzero,Znorm):
     # hand_ssr = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,chosen_set]) for i in np.setdiff1d(range(p),chosen_set)])
     return chosen_set,hand_ssr
 
-def chosen_set_with_press_zj(Gammavalue,nonzero,Zstandard):
-    n,p= Zstandard.shape
-    chosen_set = list(np.argsort(-np.round(cp.norm(Gammavalue, 2, axis=1).value,6))[:nonzero])
-    Zstandard1 = np.ones((n,nonzero+1))
-    Zstandard1[:,1:] = Zstandard[:,chosen_set]
-    hand_ssr = np.mean([PRESS_statistic(Zstandard[:,i],Zstandard1) for i in np.setdiff1d(range(p),chosen_set)])
-    
-    # hand_ssr = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,chosen_set]) for i in np.setdiff1d(range(p),chosen_set)])
-    return chosen_set,hand_ssr
-
 def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]], fix_true = None,fix_false = None,hyper_p = None):
    
     Z = Z[:train_size]
@@ -305,7 +425,7 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
         Znorm_train,Znorm_test = train_test(Znorm,train_size*3//5)
         # knum_list = np.array([Knum-2,Knum-1,Knum,Knum+1,Knum+2])
         knum_list = np.array([Knum])
-        svd_C_list = np.linspace(0, 1, 30)
+        svd_C_list = np.linspace(0, svd_C, 30)
         # svd_C_list = [1]
         # knum_list = np.array([Knum])
         
@@ -379,7 +499,7 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
                 check_set = np.setdiff1d(range(p),union_set)
                 check_press1 =np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,final_chosen_set]) for i in check_set ])
                 check_press2 = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,knum_chosen_set]) for i in check_set ])
-                print(final_chosen_set,'check_press1 ',check_press1 ,knum_chosen_set,'check_press2',check_press2 )
+                # print(final_chosen_set,'check_press1 ',check_press1 ,knum_chosen_set,'check_press2',check_press2 )
                 if check_press1<check_press2:
                     knum_chosen_set = final_chosen_set
                 # else:
@@ -387,17 +507,201 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
                 #     SSR = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,knum_chosen_set]) for i in np.setdiff1d(range(p),knum_chosen_set)])
                 #     final_chosen_set = knum_chosen_set 
                     
-                print('knum',knum,knum_chosen_set)
-        Zk, Theta_tru, svd_C_hand = compute_k_truncated_svd(Znorm, knum) 
-        hand_svd_C= svd_C_hand*.5
+                # print('knum',knum,knum_chosen_set)
+        return knum_chosen_set      
+        # Zk, Theta_tru, svd_C_hand = compute_k_truncated_svd(Znorm, knum) 
+        # hand_svd_C= svd_C_hand*.5
         
-        Gammavalue = svd_convex_optimization(Znorm, hand_svd_C, knum)[1]
+        # Gammavalue = svd_convex_optimization(Znorm, hand_svd_C, knum)[1]
         
-        hand_chosen_set,hand_ssr= chosen_set_with_press(Gammavalue,knum,Znorm)
+        # hand_chosen_set,hand_ssr= chosen_set_with_press(Gammavalue,knum,Znorm)
         
-        chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,p,Znorm)
+        # chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,p,Znorm)
         
-        return knum_chosen_set,SSR,final_svd_C,hand_chosen_set,hand_ssr,hand_svd_C
+        # return knum_chosen_set,SSR,final_svd_C,hand_chosen_set,hand_ssr,hand_svd_C
+    elif method == 'DGL_new1':
+      
+        chosen_set =[]
+        # Znorm = Z
+        # knum_list = np.array([Knum-2,Knum-1,Knum,Knum+1,Knum+2])
+        knum_list = np.array([Knum])
+        # svd_C_list = np.linspace(svd_C*0.1, svd_C, 30)
+        svd_C_list = [svd_C]
+
+        SSR = 999
+        final_knum = 0
+        final_chosen_set = []
+        knum_chosen_set = []
+        cv_ssr = SSR-1
+        final_svd_C  = 0
+        for knum in knum_list:
+            for svd_C_i in svd_C_list:
+                if asset[0][0]:
+                    asset = asset[:train_size]
+                    asset = normalize_columns(asset)
+                    asset_train,asset_test = train_test(asset,train_size*2//3)
+                St = sr_best(Znorm,lambda_val = 0.025, sigma = 500, T = 10000)
+                Gammavalue = Znew1_convex_optimization(Znorm, svd_C_i, knum,St)[1]
+                nonzero = np.count_nonzero(np.round(cp.norm(Gammavalue, 2, axis=1).value,6))
+                
+                if nonzero == 0:
+                    pass
+                elif  0<nonzero<knum :
+                    # chosen_set,hand_ssr= chosen_set_with_press(Gammavalue,nonzero,Znorm_train,Znorm_test)
+                    chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,nonzero,Znorm)
+                elif nonzero >= knum:
+                    chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,knum,Znorm)
+
+                if cv_ssr<SSR:
+                    SSR = cv_ssr
+                    final_chosen_set =  chosen_set
+                   
+                    final_knum = knum
+                    final_svd_C = svd_C_i
+            
+   
+            if  len(knum_chosen_set)==0:
+                knum_chosen_set = final_chosen_set
+            elif len(final_chosen_set) >= len(knum_chosen_set):
+                union_set = list(set(final_chosen_set).union(knum_chosen_set))
+                check_set = np.setdiff1d(range(p),union_set)
+                check_press1 =np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,final_chosen_set]) for i in check_set ])
+                check_press2 = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,knum_chosen_set]) for i in check_set ])
+                # print(final_chosen_set,'check_press1 ',check_press1 ,knum_chosen_set,'check_press2',check_press2 )
+                if check_press1<check_press2:
+                    knum_chosen_set = final_chosen_set
+          
+                # print('knum',knum,knum_chosen_set)
+        return knum_chosen_set      
+        # Zk, Theta_tru, svd_C_hand = compute_k_truncated_svd(Znorm, knum) 
+        # hand_svd_C= svd_C_hand*.5
+        # Gammavalue = Z_convex_optimization(Znorm, hand_svd_C, knum)[1]
+        # hand_chosen_set,hand_ssr= chosen_set_with_press(Gammavalue,knum,Znorm)
+        # chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,p,Znorm)
+        
+        # return knum_chosen_set,SSR,final_svd_C,hand_chosen_set,hand_ssr,hand_svd_C
+    elif method == 'DGL_new2':
+      
+        chosen_set =[]
+        # Znorm = Z
+        # knum_list = np.array([Knum-2,Knum-1,Knum,Knum+1,Knum+2])
+        knum_list = np.array([Knum])
+        svd_C_list = np.linspace(svd_C*0.1, svd_C, 30)
+
+        SSR = 999
+        final_knum = 0
+        final_chosen_set = []
+        knum_chosen_set = []
+        cv_ssr = SSR-1
+        final_svd_C  = 0
+        for knum in knum_list:
+            for svd_C_i in svd_C_list:
+                if asset[0][0]:
+                    asset = asset[:train_size]
+                    asset = normalize_columns(asset)
+                    asset_train,asset_test = train_test(asset,train_size*2//3)
+                St = sr_best(Znorm,lambda_val = 0.033, sigma = 500, T = 10000)
+                Gammavalue = Znew2_convex_optimization(Znorm, svd_C_i, knum,St)[1]
+                nonzero = np.count_nonzero(np.round(cp.norm(Gammavalue, 2, axis=1).value,6))
+                
+                if nonzero == 0:
+                    pass
+                elif  0<nonzero<knum :
+                    # chosen_set,hand_ssr= chosen_set_with_press(Gammavalue,nonzero,Znorm_train,Znorm_test)
+                    chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,nonzero,Znorm)
+                elif nonzero >= knum:
+                    chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,knum,Znorm)
+
+                if cv_ssr<SSR:
+                    SSR = cv_ssr
+                    final_chosen_set =  chosen_set
+                   
+                    final_knum = knum
+                    final_svd_C = svd_C_i
+            
+   
+            if  len(knum_chosen_set)==0:
+                knum_chosen_set = final_chosen_set
+            elif len(final_chosen_set) >= len(knum_chosen_set):
+                union_set = list(set(final_chosen_set).union(knum_chosen_set))
+                check_set = np.setdiff1d(range(p),union_set)
+                check_press1 =np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,final_chosen_set]) for i in check_set ])
+                check_press2 = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,knum_chosen_set]) for i in check_set ])
+                # print(final_chosen_set,'check_press1 ',check_press1 ,knum_chosen_set,'check_press2',check_press2 )
+                if check_press1<check_press2:
+                    knum_chosen_set = final_chosen_set
+          
+                # print('knum',knum,knum_chosen_set)
+        return knum_chosen_set      
+        # Zk, Theta_tru, svd_C_hand = compute_k_truncated_svd(Znorm, knum) 
+        # hand_svd_C= svd_C_hand*.5
+        # Gammavalue = Z_convex_optimization(Znorm, hand_svd_C, knum)[1]
+        # hand_chosen_set,hand_ssr= chosen_set_with_press(Gammavalue,knum,Znorm)
+        # chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,p,Znorm)
+        
+        # return knum_chosen_set,SSR,final_svd_C,hand_chosen_set,hand_ssr,hand_svd_C
+ 
+    elif method == 'DGL':
+      
+        chosen_set =[]
+        # Znorm = Z
+        # knum_list = np.array([Knum-2,Knum-1,Knum,Knum+1,Knum+2])
+        knum_list = np.array([Knum])
+        # svd_C_list = np.linspace(svd_C*0.1, svd_C, 30)
+        svd_C_list = np.array([svd_C])
+
+        SSR = 999
+        final_knum = 0
+        final_chosen_set = []
+        knum_chosen_set = []
+        cv_ssr = SSR-1
+        final_svd_C  = 0
+        for knum in knum_list:
+            for svd_C_i in svd_C_list:
+                if asset[0][0]:
+                    asset = asset[:train_size]
+                    asset = normalize_columns(asset)
+                    asset_train,asset_test = train_test(asset,train_size*2//3)
+                St = sr_best(Znorm,lambda_val = 0.031, sigma = 500, T = 10000)
+                Gammavalue = Z_convex_optimization(Znorm, svd_C_i, knum,St)[1]
+                nonzero = np.count_nonzero(np.round(cp.norm(Gammavalue, 2, axis=1).value,6))
+                
+                if nonzero == 0:
+                    pass
+                elif  0<nonzero<knum :
+                    # chosen_set,hand_ssr= chosen_set_with_press(Gammavalue,nonzero,Znorm_train,Znorm_test)
+                    chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,nonzero,Znorm)
+                elif nonzero >= knum:
+                    chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,knum,Znorm)
+
+                if cv_ssr<SSR:
+                    SSR = cv_ssr
+                    final_chosen_set =  chosen_set
+                   
+                    final_knum = knum
+                    final_svd_C = svd_C_i
+            
+   
+            if  len(knum_chosen_set)==0:
+                knum_chosen_set = final_chosen_set
+            elif len(final_chosen_set) >= len(knum_chosen_set):
+                union_set = list(set(final_chosen_set).union(knum_chosen_set))
+                check_set = np.setdiff1d(range(p),union_set)
+                check_press1 =np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,final_chosen_set]) for i in check_set ])
+                check_press2 = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,knum_chosen_set]) for i in check_set ])
+                # print(final_chosen_set,'check_press1 ',check_press1 ,knum_chosen_set,'check_press2',check_press2 )
+                if check_press1<check_press2:
+                    knum_chosen_set = final_chosen_set
+          
+                # print('knum',knum,knum_chosen_set)
+        return knum_chosen_set      
+        # Zk, Theta_tru, svd_C_hand = compute_k_truncated_svd(Znorm, knum) 
+        # hand_svd_C= svd_C_hand*.5
+        # Gammavalue = Z_convex_optimization(Znorm, hand_svd_C, knum)[1]
+        # hand_chosen_set,hand_ssr= chosen_set_with_press(Gammavalue,knum,Znorm)
+        # chosen_set,cv_ssr= chosen_set_with_press(Gammavalue,p,Znorm)
+        
+        # return knum_chosen_set,SSR,final_svd_C,hand_chosen_set,hand_ssr,hand_svd_C
     elif method == 'TSMS': 
         
         for knum in range(2,p//2):  
@@ -451,106 +755,7 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
     # print('[0,1,2,3,4]:', hand_ssr)
     
     
-def choose_factor_zj(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]], fix_true = None,fix_false = None,hyper_p = None):
-    
-    Z = Z[:train_size]
-    Zstandard = standardize_columns(Z)
-    # Zstandard = normalize_columns(Zstandard)
-    n, p = Z.shape
-    # SVD Z and define the knum principal components
-    Handssr = []
-    if method == 'SGL':
-       
-        chosen_set =[]
-        knum_list = np.array([Knum-2,Knum-1,Knum,Knum+1,Knum+2])
-        # knum_list = np.array([Knum])
-        svd_C_list = np.linspace(0, 1, 30)
-    
-        
-        SSR = 999
-        final_knum = 0
-        final_chosen_set = []
-        knum_chosen_set = []
-        cv_ssr = SSR-1
-        final_svd_C  = 0
-        
-      
-        for knum in knum_list:
-            for svd_C_i in svd_C_list:
-                if asset[0][0]:
-                    asset = asset[:train_size]
-                    asset = normalize_columns(asset)
-            
-                    U = get_U(np.hstack((Zstandard,asset)), knum)
-               
-                else:
-                    U = get_U(Zstandard, knum)
-                    
-                Gammavalue = svd_convex_optimization_zj(Zstandard, svd_C_i, knum)[1]
-                
-                ###########
-                
-                if fix_true:
-                    Gammavalue[fix_true] = np.ones((knum))*100 
-                if fix_false:
-                    Gammavalue[fix_false] = np.zeros((knum)) 
-                
-                nonzero = np.count_nonzero(np.round(cp.norm(Gammavalue, 2, axis=1).value,4))
-                if nonzero == 0:
-                    pass
-                elif  0<nonzero<knum :
-              
-                    chosen_set,cv_ssr= chosen_set_with_press_zj(Gammavalue,nonzero,Zstandard)
-                elif nonzero >= knum:
-                  
-                    chosen_set,cv_ssr= chosen_set_with_press_zj(Gammavalue,knum,Zstandard)
-        
-                if cv_ssr<SSR:
-                    SSR = cv_ssr
-                    final_chosen_set =  chosen_set
-                   
-                    final_knum = knum
-                    final_svd_C = svd_C_i
 
-            if  len(knum_chosen_set)==0:
-                knum_chosen_set = final_chosen_set
-            elif len(final_chosen_set) >= len(knum_chosen_set):
-                union_set = list(set(final_chosen_set).union(knum_chosen_set))
-                check_set = np.setdiff1d(range(p),union_set)
-                
-                Zstandard1 = np.ones((n,len(final_chosen_set)+1))
-                Zstandard1[:,1:] = Zstandard[:,final_chosen_set]
-                
-                Zstandard2 = np.ones((n,len(knum_chosen_set)+1))
-                Zstandard2[:,1:] = Zstandard[:,knum_chosen_set]
-                
-                check_press1 =np.mean([PRESS_statistic(Zstandard[:,i],Zstandard1) for i in check_set ])
-                check_press2 = np.mean([PRESS_statistic(Zstandard[:,i],Zstandard2) for i in check_set ])
-                print(final_chosen_set,'check_press1',check_press1 ,knum_chosen_set,'check_press2',check_press2 )
-                
-                if check_press1<check_press2:
-                    knum_chosen_set = final_chosen_set
-       
-                print('knum',knum,knum_chosen_set)
-    # Zstandard0 =np.ones((n,5+1))
-    # Zstandard0[:,1:] = Zstandard[:,[0,1,2,3,4]]
-    # hand_ssr = np.mean([PRESS_statistic(Zstandard[:,i],Zstandard0[:,[0,1,2,3,4]]) for i in np.setdiff1d(range(p),[0,1,2,3,4])])
-    # print('[0,1,2,3,4]:', hand_ssr)
-    Zk, Theta_tru, svd_C_hand = compute_k_truncated_svd(Zstandard, knum) 
-    hand_svd_C= svd_C_hand*.5
-    
-    Gammavalue = svd_convex_optimization_zj(Zstandard, hand_svd_C, knum)[1]
-    
-    hand_chosen_set,hand_ssr= chosen_set_with_press_zj(Gammavalue,knum,Zstandard)
-    
-    chosen_set,cv_ssr= chosen_set_with_press_zj(Gammavalue,p,Zstandard)
-    
-    return knum_chosen_set,SSR,final_svd_C,hand_chosen_set,hand_ssr,hand_svd_C
-
-
-
-   
-   
 
 def evaluate(num_chosen_set,N_simulations):
     Select_knum = []
