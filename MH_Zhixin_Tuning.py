@@ -15,7 +15,7 @@ Z = dff99.values
 Z = normalize_columns(Z)
 T = 10000
 sigma =0.00001
-lambd1 =2/sigma
+lambd1 = 2/sigma
 k = 9
 lambd2 = 4/sigma
 
@@ -27,7 +27,6 @@ Mh = compute_k_truncated_svd(Z, k)[0]  # Perform k-truncated SVD of Z
 # n, p = Z.shape
 # U = np.zeros((n, k))
 alpha_hat = np.zeros(p)
-e1 = np.eye(p+1)[0]
 Z_hat = np.zeros_like(Z)
 for i in range(p):
     Z_minus_i = np.delete(Z, i, axis=1)
@@ -50,6 +49,7 @@ indices = np.argsort(alpha_hat / np.sqrt(np.diag(Sigma)))[::-1][:30]
 #print('initial', dff99.columns[indices])
 
 St = set(indices)
+e1 = np.eye(len(St)+1)[0]
 Z_St = np.concatenate((np.ones((n,1)),Z[:, list(St)]),axis=1)
 Theta = np.linalg.inv(Z_St.T @ Z_St+lambd1*e1@e1.T) @ Z_St.T  @ Z 
 Objective = np.zeros(T)
@@ -60,6 +60,7 @@ Sseq = np.zeros((p, T))
 
 
 for t in range(T):
+    e1 = np.eye(len(St)+1)[0]
     j = np.random.randint(p)  # Generate a random index
     # Create new subset S_new by adding or removing j
     

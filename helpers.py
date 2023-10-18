@@ -2,8 +2,8 @@
 Author: Naixin && naixinguo2-c@my.cityu.edu.hk
 Date: 2023-08-15 14:09:12
 LastEditors: Naixin && naixinguo2-c@my.cityu.edu.hk
-LastEditTime: 2023-10-10 17:00:06
-FilePath: /trylab/grp_journal/helpers.py
+LastEditTime: 2023-10-12 22:47:49
+FilePath: /trylab/factor-ident/helpers.py
 Description:
 
 '''
@@ -310,42 +310,62 @@ def  Znew1_convex_optimization(Z, svd_C, knum, St):
         print(np.linalg.norm(Gamma.value, axis=0))
     # Return the optimal value and the optimal Gamma
     return result, Gamma.value
-def  Znew2_convex_optimization(Z, svd_C, knum, St):
+def  Znew2_convex_optimization(Z, svd_C,lambd, knum, St):
     # Define the dimensions of the matrices
     n, p = Z.shape
     # Define the optimization variable Gamma
-    # Gamma = cp.Variable((p, p))
-    Z0 = Z[:,St]
-    Gamma0 =np.random.normal(0.001,0.01,(p,p))
-    Gamma0[St] = np.linalg.pinv(Z0.T@Z0)@Z0.T@Z
+    sigma =0.00001
+    lambd1 = lam1/sigma
+    k = 9
+    lambd2 = lam2/sigma
+
+    n, p = Z.shape
+    Mh = compute_k_truncated_svd(Z, k)[0]  # Perform k-truncated SVD of Z
+    alpha_hat = np.zeros(p)
+    e1 = np.eye(p+1)[0]
+    Z_hat = np.zeros_like(Z)
+    for i in range(p):
+        Z_minus_i = np.delete(Z, i, axis=1)
+        Ui,Si,Vi = np.linalg.svd(Z_minus_i)
+        X = np.hstack((np.ones((n, 1)), Ui[:,:k]))
+        beta = np.linalg.lstsq(X, Z[:, i], rcond=None)[0]
+        alpha_hat[i]=beta[0]
+        Z_hat[:, i] = np.dot(X, beta)
+    Sigma = np.cov(Z - Z_hat, rowvar=False)  
+    S,U=np.linalg.eig(Sigma)
+    S = np.abs(S)
+    Sigma_inv = np.linalg.inv(Sigma)
+    Sigma_half_inv =np.linalg.inv(U@np.diag(np.sqrt(S))@U.T)
+    # Initialize S1 with indices of top 2k largest values of alpha_i / sqrt(Sigma_ii)
+    # indices = np.argsort(alpha_hat / np.sqrt(np.diag(Sigma)))[::-1][:30]
+    
+    # Z0 = Z[:,indices]
+    # Gamma0 =np.random.normal(0.001,0.01,(p,p))
+    # Gamma0[indices] = np.linalg.pinv(Z0.T@Z0)@Z0.T@Z
+    # Gamma0 = np.concatenate((np.zeros((p,1)),Gamma0),axis=1) 
     # Define the objective function
     #####################################################################################
     # objective = cp.Minimize(cp.norm(U - Z @ Gamma, 'fro')**2)
-    Gamma = cp.Variable((p,p))
-    alpha = cp.Variable((n,p))
-    Gamma.value = Gamma0
+    Gamma = cp.Variable((p+1,p))
+    # Gamma.value = Gamma0
     # Sigma = np.cov((Z-Z@Gamma0).T)
-    Sigma = (Z-Z@Gamma0).T@(Z-Z@Gamma0)/n
-    S,U=np.linalg.eig(Sigma)
-    Sigma_half_inv =U@np.diag(np.sqrt(1/S))@U.T
-
-    for _ in range(1):    
-       
-        Sigma_inv = np.linalg.pinv(Sigma)
-        objective = cp.Minimize(cp.norm(Sigma_half_inv @ Z.T - Sigma_half_inv @ Gamma.T @ Z.T  - Sigma_half_inv@alpha, 'fro')**2 + alpha @ Sigma_inv @ alpha.T)
-        # Define the constraint
-        constraints = [
-            cp.sum(cp.norm(Gamma, 2, axis=1))<=svd_C
-        ]
-        # Define the optimization problem
-        problem = cp.Problem(objective, constraints)
-        # Solve the optimization problem
-        result = problem.solve(warm_start=True)
-        # Sigma = np.cov((Z-Z@Gamma.value-alpha.value).T)
-        Sigma = (Z-Z@Gamma.value-alpha.value).T@(Z-Z@Gamma.value-alpha.value)/n
-        S,U=np.linalg.eig(Sigma)
-        Sigma_half_inv =U@np.diag(np.sqrt(1/S))@U.T
-
+   
+    Z1 = np.concatenate((np.ones((n,1)),Z ),axis=1)
+    Opt_matrix1 = np.concatenate((Z@Sigma_half_inv, np.ones((1,n))),axis=0)
+    Opt_matrix2 = np.concatenate((Z1, np.sqrt(lambd)*e1.T),axis=0)
+     
+    objective = cp.Minimize(cp.norm(Opt_matrix1 - Opt_matrix2
+                                    @Gamma@Sigma_half_inv, 'fro')**2 )
+    # Define the constraint
+    constraints = [
+        cp.sum(cp.norm(Gamma, 2, axis=1))<=svd_C
+    ]
+    # Define the optimization problem
+    problem = cp.Problem(objective, constraints)
+    # Solve the optimization problem
+    result = problem.solve()
+    # Sigma = np.cov((Z-Z@Gamma.value-alpha.value).T)
+    
     # Return the optimal value and the optimal Gamma
     return result, Gamma.value
 
