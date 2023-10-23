@@ -2,8 +2,8 @@
 Author: Naixin && naixinguo2-c@my.cityu.edu.hk
 Date: 2023-08-15 14:09:12
 LastEditors: Naixin && naixinguo2-c@my.cityu.edu.hk
-LastEditTime: 2023-10-22 15:34:56
-FilePath: /factor-ident/helpers.py
+LastEditTime: 2023-10-12 22:47:49
+FilePath: /trylab/factor-ident/helpers.py
 Description:
 
 '''
@@ -234,7 +234,7 @@ def svd_convex_optimization(Z, svd_C, knum):
     # Define the optimization problem
     problem = cp.Problem(objective, constraints)
     # Solve the optimization problem
-    result = problem.solve(solver = cp.MOSEK)
+    result = problem.solve()
     # Return the optimal value and the optimal Gamma
     return result, Gamma.value
 def Z_convex_optimization(Z, svd_C, knum, St):
@@ -260,7 +260,7 @@ def Z_convex_optimization(Z, svd_C, knum, St):
     # Define the optimization problem
     problem = cp.Problem(objective, constraints)
     # Solve the optimization problem
-    result = problem.solve(solver = cp.MOSEK)
+    result = problem.solve()
     # Return the optimal value and the optimal Gamma
     return result, Gamma.value
 

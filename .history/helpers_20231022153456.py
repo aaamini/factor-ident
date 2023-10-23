@@ -234,7 +234,7 @@ def svd_convex_optimization(Z, svd_C, knum):
     # Define the optimization problem
     problem = cp.Problem(objective, constraints)
     # Solve the optimization problem
-    result = problem.solve(solver = cp.MOSEK)
+    result = problem.solve()
     # Return the optimal value and the optimal Gamma
     return result, Gamma.value
 def Z_convex_optimization(Z, svd_C, knum, St):
