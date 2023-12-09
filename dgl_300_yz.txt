@@ -1,0 +1,31 @@
+Counter({2: 98, 4: 96, 1: 91, 3: 87, 0: 85, 5: 21, 6: 7, 7: 5, 15: 3, 17: 2, 13: 1, 12: 1, 14: 1, 16: 1, 9: 1})
+selected factor size: 5.0 CP: 0.66 CF: 0.66 TR: 0.914 FR: 0.0215 F1: 0.914
+(5.0, 0.66, 0.66, 0.914, 0.0215, 0.914)
+Counter({1: 97, 2: 96, 4: 96, 3: 95, 0: 95, 5: 16, 6: 3, 7: 2})
+selected factor size: 5.0 CP: 0.8 CF: 0.8 TR: 0.958 FR: 0.0035 F1: 0.958
+(5.0, 0.8, 0.8, 0.958, 0.0035, 0.958)
+Counter({3: 98, 1: 97, 2: 97, 0: 95, 4: 88, 5: 22, 6: 1, 9: 1, 7: 1})
+selected factor size: 5.0 CP: 0.75 CF: 0.75 TR: 0.95 FR: 0.0025 F1: 0.95
+(5.0, 0.75, 0.75, 0.95, 0.0025, 0.95)
+Counter({2: 97, 3: 96, 1: 96, 0: 94, 4: 93, 5: 18, 7: 3, 6: 3})
+selected factor size: 5.0 CP: 0.76 CF: 0.76 TR: 0.952 FR: 0.001714 F1: 0.952
+(5.0, 0.76, 0.76, 0.952, 0.001714, 0.952)
+Counter({1: 100, 3: 96, 2: 95, 0: 93, 4: 90, 5: 21, 7: 2, 6: 2, 10: 1})
+selected factor size: 5.0 CP: 0.75 CF: 0.75 TR: 0.948 FR: 0.001444 F1: 0.948
+(5.0, 0.75, 0.75, 0.948, 0.001444, 0.948)
+Traceback (most recent call last):
+  File "/home/guonaixin/trylab/factor-ident/simu_yz.py", line 74, in <module>
+    N_chosen_set= Parallel(n_jobs=50)(delayed(Final)(i,p) for i in range(N_simulations))
+  File "/home/guonaixin/.local/lib/python3.10/site-packages/joblib/parallel.py", line 1098, in __call__
+    self.retrieve()
+  File "/home/guonaixin/.local/lib/python3.10/site-packages/joblib/parallel.py", line 975, in retrieve
+    self._output.extend(job.get(timeout=self.timeout))
+  File "/home/guonaixin/.local/lib/python3.10/site-packages/joblib/_parallel_backends.py", line 567, in wrap_future_result
+    return future.result(timeout=timeout)
+  File "/usr/lib/python3.10/concurrent/futures/_base.py", line 458, in result
+    return self.__get_result()
+  File "/usr/lib/python3.10/concurrent/futures/_base.py", line 403, in __get_result
+    raise self._exception
+joblib.externals.loky.process_executor.TerminatedWorkerError: A worker process managed by the executor was unexpectedly terminated. This could be caused by a segmentation fault while calling the function or by an excessive memory usage causing the Operating System to kill the worker.
+
+The exit codes of the workers are {SIGKILL(-9)}

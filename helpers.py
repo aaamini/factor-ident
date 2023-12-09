@@ -2,10 +2,10 @@
 Author: Naixin && naixinguo2-c@my.cityu.edu.hk
 Date: 2023-08-15 14:09:12
 LastEditors: Naixin && naixinguo2-c@my.cityu.edu.hk
-LastEditTime: 2023-11-01 19:48:23
+LastEditTime: 2023-12-09 22:40:27
 FilePath: /trylab/factor-ident/helpers.py
 Description:
-
+ 
 '''
 import seaborn as sns
 from sklearn.model_selection import KFold
@@ -28,31 +28,172 @@ from scipy.stats import f
 import heapq
 import itertools
 import pandas as pd
+from sklearn.preprocessing import normalize
 import warnings
 import cvxpy as cp
+from matplotlib.ticker import AutoMinorLocator
 warnings.filterwarnings('ignore')
+def judge_star(pvalue1):
+    pvalue = 1 - pvalue1
+    if pvalue > 0.99:
+        output = "$^{***}$"
+    elif pvalue > 0.95:
+        output = "$^{**}$"
+    elif pvalue > 0.90:
+        output = "$^{*}$"
+    else:
+        output = ""
+    return output
+### non nested model
+def BKRS_test(FA, FB):
+    
+    T=FA.shape[0]
+    KA = FA.shape[1]
+    muA = np.mean(FA, axis=0)
+    if KA ==1:
+        WA = (((T - KA - 2)/T)/np.cov(FA.T))[np.newaxis,np.newaxis]
+    else:   
+        WA = ((T - KA - 2)/T)*np.linalg.pinv(np.cov(FA.T))  # (T - K - 2)/T 调整一下
+    theta2A = muA.T@WA@muA  - KA/T
 
+    KB = FB.shape[1]
+    muB = np.mean(FB, axis=0)
+    WB = ((T - KB - 2)/T)*np.linalg.pinv(np.cov(FB.T)) # (T - K - 2)/T 调整一下
+    theta2B = muB.T@WB@muB  - KB/T
+
+    dtheta2 = theta2A-theta2B
+
+    FAd = FA - muA
+    FBd = FB - muB
+    uA = FAd@WA@muA  # T * 1
+    uB = FBd@WB@muB
+    dt = 2*(uA-uB)-(uA**2-uB**2)
+
+    vd = dt.T@dt
+    vd = vd/T
+    tvalue = np.abs(dtheta2)/np.sqrt(vd/T)
+    pvalue = 2* (1- norm.cdf(np.abs(tvalue)))
+    
+    return [pvalue,tvalue]
+  
+
+def PY_test(F1, F2, test_asset):
+
+    if test_asset[0][0]:
+        X2 = np.hstack((F2, test_asset))
+    else:
+        X2 = F2
+
+    K = F1.shape[1]
+    N = X2.shape[1]
+    T = X2.shape[0]
+    ones = np.ones((T, 1))
+    M_F1 = np.eye(T) - F1 @ np.linalg.pinv(F1.T @ F1) @ F1.T
+    hat_alpha2 = X2.T @ M_F1 @ ones @ np.linalg.pinv(ones.T @ M_F1 @ ones)
+
+    full_X = np.hstack((ones, F1))
+    M_F = np.round(np.eye(T) - full_X @ np.linalg.pinv(full_X.T @ full_X) @ full_X.T,25)
+
+
+    error = X2.T @ M_F
+    error_Sigma = error @ error.T / (T - K - 1)
+    m = np.linalg.pinv(ones.T @ M_F1 @ ones)
+    var_alpha2 = np.diag(m) * error_Sigma
+    T_stat2 = hat_alpha2**2 /(np.diag(var_alpha2)[:,np.newaxis])
+
+    deg = T - K - 1
+
+    rho2 = 0
+    Rut = np.corrcoef(error)
+
+    pn = 0.1 / (N - 1)
+    thetan = (norm.ppf(1 - pn / 2)) ** 2
+    rho2 = (np.sum((Rut[Rut ** 2 * deg > thetan]) ** 2) - N) / 2
+    rho2 = rho2 * 2 / N / (N - 1)
+
+    PYk = N ** (-1 / 2) * (np.sum(T_stat2 - deg / (deg - 2))) / ((deg / (deg - 2)) * np.sqrt(2 * (deg - 1) / (deg - 4) * (1 + N * rho2)))
+
+    pvalue = 2 * (1 - norm.cdf(np.abs(PYk)))
+
+    return [pvalue, PYk]
+
+
+def GRS_test(F1, F2, test_asset, Lambda):
+  
+    if test_asset[0][0]:
+        Y = np.concatenate((F2, test_asset), axis=1)
+    else:
+        Y = F2
+    K = F1.shape[1]
+    N1 = Y.shape[1]
+    T = Y.shape[0]
+    
+    # GRS statistic
+    if F1.shape[1]==1:
+        W1 = 1/np.cov(F1.T)
+        mu1 = np.mean(F1)
+        SR1 = 1 + mu1.T * W1 * mu1
+    else:    
+        W1 = np.linalg.pinv(np.cov(F1.T))
+        mu1 = np.mean(F1, axis=0)
+        SR1 = 1 + mu1.T @ W1 @ mu1
+    
+    if (N1 + K) < T:
+        F = np.concatenate((Y, F1), axis=1)  
+    else:
+        F = np.concatenate((F2, F1), axis=1)  
+    W = np.linalg.pinv(np.cov(F.T))
+    mu = np.mean(F, axis=0)
+    SR = 1 + mu.T @ W @ mu
+    N = F.shape[1] - K
+    
+    GRSi = ((T - N - K) / N) * (SR / SR1 - 1)
+    qf0i = f.ppf(1 - Lambda, N, T - N - K)
+    pvalue = 1 - f.cdf(GRSi, N, T - N - K)
+    
+    return [pvalue, GRSi, qf0i]
+
+# def PRESS_statistic(r, X):
+#     """
+#     Compute the average PRESS statistic of the regression of r on X.
+
+#     Parameters
+#     ----------
+#     r : np.ndarray
+#         Dependent variable matrix. Each column is a different response variable.
+#     X : np.ndarray
+#         Independent variable matrix.
+
+#     Returns
+#     -------
+#     float
+#         Average PRESS statistic across all response variables.
+#     """
+#     # Compute regression coefficients
+#     beta = np.linalg.inv(X.T @ X) @ X.T @ r
+
+#     # Compute residuals
+#     residuals = r - X @ beta
+
+#     # Compute the hat matrix
+#     H = X @ np.linalg.inv(X.T @ X) @ X.T
+
+#     # Compute the PRESS residuals
+#     h_diag = np.diag(H)[:, np.newaxis]  # make it a column vector for broadcasting
+#     PRESS = residuals / (1 - h_diag)
+
+#     # Compute the PRESS statistic for each response variable
+#     PRESS_stat = np.sum(PRESS**2, axis=0)
+
+#     # Return the average PRESS statistic
+#     return np.mean(PRESS_stat)
 def PRESS_statistic(r, X):
-    """
-    Compute the average PRESS statistic of the regression of r on X.
 
-    Parameters
-    ----------
-    r : np.ndarray
-        Dependent variable matrix. Each column is a different response variable.
-    X : np.ndarray
-        Independent variable matrix.
-
-    Returns
-    -------
-    float
-        Average PRESS statistic across all response variables.
-    """
     # Compute regression coefficients
     beta = np.linalg.inv(X.T @ X) @ X.T @ r
 
     # Compute residuals
-    residuals = r - X @ beta
+    residuals =( r - X @ beta)[:, np.newaxis]
 
     # Compute the hat matrix
     H = X @ np.linalg.inv(X.T @ X) @ X.T
@@ -60,12 +201,14 @@ def PRESS_statistic(r, X):
     # Compute the PRESS residuals
     h_diag = np.diag(H)[:, np.newaxis]  # make it a column vector for broadcasting
     PRESS = residuals / (1 - h_diag)
-
+    # R= np.sum((r-np.mean([np.setdiff1d(r,i) for i in range(r.shape[0])]))**2, axis=0)
+  
     # Compute the PRESS statistic for each response variable
-    PRESS_stat = np.sum(PRESS**2, axis=0)
+    PRESS_stat = np.sum(PRESS**2)
 
     # Return the average PRESS statistic
-    return np.mean(PRESS_stat)
+    return PRESS_stat
+
 def create_factors(n, k, p, sig=1, eps=0.1, correlated=False):
 
     if correlated:
@@ -122,6 +265,61 @@ def compute_k_truncated_svd(Z, k):
     svd_C = cp.sum(cp.norm(Theta_tru, 2, axis=1)).value
     
     return Zk, Theta_tru, svd_C
+def compute_svd_C(Z, k):
+    """
+    Compute the k-truncated SVD of the matrix Z.
+    
+    Parameters:
+    - Z: numpy array of shape (m, n)
+    - k: int, number of singular values to consider
+    
+    Returns:
+    - Zk: numpy array, k-truncated approximation of Z
+    - svd_C: float, the sum of l2 norms of rows of Theta_tru
+    """
+    
+    # Compute the k-truncated SVD of Z
+   
+    Zk =Z[:, :k]
+
+    # Invert Sk @ Vk
+    Theta_tru = np.linalg.inv(Zk.T@Zk)@Zk.T @ Z
+    svd_C = cp.sum(cp.norm(Theta_tru, 2, axis=1)).value
+    
+    return svd_C
+
+def create_Z(n, k, p, rho, sig):
+    # Create X as an n x k standard Gaussian matrix
+    X = np.random.randn(n, k)
+    
+    #Normalize X
+    X = X / np.linalg.norm(X,axis=0)
+    
+    
+    # Create B as a random k x (p-k) matrix
+    B = np.random.randn(k, p-k)
+    
+    # Normalize B such that its l1 matrix norm is rho
+    B = normalize(B, axis=0, norm='l2') * rho
+    
+    # Create W as an n x (p-k) Gaussian matrix
+    W = np.random.randn(n, p-k)
+    
+    # Calculate X B 
+    XB = X @ B 
+
+    # Calculate Y = X B + sig*W with normalized XB
+    # Y = XB/ np.linalg.norm(XB ,axis=0)  + sig*W
+    Y = XB + sig*W
+    # Calculate Z = [X  Y] (column concatenation of X and Y)
+    Z = np.hstack((X, Y))
+
+    
+    Z = Z / np.linalg.norm(Z,axis=0)
+    
+    
+    return Z
+
 
 def compute_k_truncated_Z(Z, k):
     """
@@ -471,8 +669,8 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
         # Znorm = np.array([Znorm[:,i] for i in shuffle_list]).T
         chosen_set =[]
         Znorm_train,Znorm_test = train_test(Znorm,train_size*3//5)
-        knum_list = np.array([Knum-2,Knum-1,Knum,Knum+1,Knum+2])
-        # knum_list = np.array([Knum])
+        # knum_list = np.array([Knum-2,Knum-1,Knum,Knum+1,Knum+2])
+        knum_list = np.array([Knum])
         svd_C_list = np.linspace(0, svd_C, 30)
         # svd_C_list = [svd_C]
         # knum_list = np.array([Knum])
@@ -540,6 +738,7 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
             
                     # print('knum',final_knum,'by hand', SSR ,svd_C_i)
     # return SSR,final_chosen_set,final_knum,final_svd_C
+            
             if  len(knum_chosen_set)==0:
                 knum_chosen_set = final_chosen_set
             elif len(final_chosen_set) >= len(knum_chosen_set):
@@ -556,7 +755,7 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
                 #     final_chosen_set = knum_chosen_set 
                     
                 # print('knum',knum,knum_chosen_set)
-        return knum_chosen_set      
+        return [knum_chosen_set ,final_svd_C]     
         # Zk, Theta_tru, svd_C_hand = compute_k_truncated_svd(Znorm, knum) 
         # hand_svd_C= svd_C_hand*.5
         
@@ -573,8 +772,8 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
         # Znorm = Z
         knum_list = np.array([Knum-2,Knum-1,Knum,Knum+1,Knum+2])
         # knum_list = np.array([Knum])
-        # svd_C_list = np.linspace(svd_C*0.1, svd_C, 10)
-        svd_C_list = np.array([svd_C])
+        svd_C_list = np.linspace(svd_C*0.1, svd_C, 30)
+        # svd_C_list = np.array([svd_C])
 
         SSR = 999
         final_knum = 0
@@ -759,9 +958,9 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
       
         chosen_set =[]
         # Znorm = Z
-        knum_list = np.array([Knum-2,Knum-1,Knum,Knum+1,Knum+2])
-        # knum_list = np.array([Knum])
-        svd_C_list = np.linspace(svd_C*0.1, svd_C, 10)
+        # knum_list = np.array([Knum-2,Knum-1,Knum,Knum+1,Knum+2])
+        knum_list = np.array([Knum])
+        svd_C_list = np.linspace(svd_C*0.1, svd_C, 30)
         # svd_C_list = np.array([svd_C])
 
         SSR = 999
@@ -792,7 +991,6 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
                 if cv_ssr<SSR:
                     SSR = cv_ssr
                     final_chosen_set =  chosen_set
-                   
                     final_knum = knum
                     final_svd_C = svd_C_i
             
@@ -805,12 +1003,12 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
                 check_press1 =np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,final_chosen_set]) for i in check_set ])
                 check_press2 = np.mean([PRESS_statistic(Znorm[:,i],Znorm[:,knum_chosen_set]) for i in check_set ])
                 # print(final_chosen_set,'check_press1 ',check_press1 ,knum_chosen_set,'check_press2',check_press2 )
-                if check_press1<check_press2:
+                if check_press1 < check_press2:
                     knum_chosen_set = final_chosen_set
-          
+       
         
           # print('knum',knum,knum_chosen_set)
-        return knum_chosen_set 
+        return [knum_chosen_set ,final_svd_C]
         # Zk, Theta_tru, svd_C_hand = compute_k_truncated_svd(Znorm, knum) 
         # hand_svd_C= svd_C_hand*.5
         # Gammavalue = Z_convex_optimization(Znorm, hand_svd_C, knum)[1]
@@ -846,6 +1044,8 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
                 l2_distance[index]= -1 #give a value that it wont be chosen again
             # print(chosen_set) 
             Y = Z[:,list(set(range(p)).difference(chosen_set))]
+            
+            # p_value = PY_test(Z[:,chosen_set],Y,[[False]])[0]
             Xj = Z[:,chosen_set]
             Xi = Z[:,chosen_set[:-1]]
             ssri = round(sum(np.linalg.lstsq(Xi,Y, rcond=None)[1]),9)
@@ -873,7 +1073,7 @@ def choose_factor(method, Z, Knum, train_size=600, svd_C = None, asset= [[None]]
     
 
 
-def evaluate(num_chosen_set,N_simulations):
+def evaluate(num_chosen_set,N_simulations,k,p):
     Select_knum = []
     CPlist=[]
     CFlist=[]
@@ -895,11 +1095,12 @@ def evaluate(num_chosen_set,N_simulations):
     TR = 0
     FR = 0
     F1=0
-    true_set = [0,1,2,3,4]
-    com_set = set(range(25))-set(true_set)
+  
+    true_set = list(range(k))
+    com_set = set(range(p))-set(true_set)
     for i in num_chosen_set:
     
-        not_select = set(range(25))-set(i)
+        not_select = set(range(p))-set(i)
         if sorted(i) == true_set:      
             totally_correct_kum += 1
         elif set(true_set).issubset(set(i)):
@@ -907,7 +1108,6 @@ def evaluate(num_chosen_set,N_simulations):
             subset_knum += 1
         TR += len(set(i)&set(true_set))/len(set(true_set))
 
-        FR += len(set(i)&set(com_set))/len(set(com_set))
         FR += len(set(i)&set(com_set))/len(set(com_set))
             
         F1 += 2*len(set(i)&set(true_set))/(2*len(set(i)&set(true_set))+len(set(i)&set(com_set))+ len(set(not_select &set(true_set))))
@@ -922,93 +1122,6 @@ def evaluate(num_chosen_set,N_simulations):
     
     return round(np.mean(select_knum),6),round(subset_knum/N_simulations+totally_correct_kum/N_simulations,6),round(totally_correct_kum/N_simulations,6),round(TR/N_simulations,6),round(FR/N_simulations,6),round(F1/N_simulations,6)
 
-def judge_star(pvalue1):
-    pvalue = 1 - pvalue1
-    if pvalue > 0.99:
-        output = "$^{***}$"
-    elif pvalue > 0.95:
-        output = "$^{**}$"
-    elif pvalue > 0.90:
-        output = "$^{*}$"
-    else:
-        output = ""
-    return output
-    
-def PY_test(F1, F2, test_asset):
-
-    if test_asset[0][0]:
-        X2 = np.hstack((F2, test_asset))
-    else:
-        X2 = F2
-
-    K = F1.shape[1]
-    N = X2.shape[1]
-    T = X2.shape[0]
-    ones = np.ones((T, 1))
-    M_F1 = np.eye(T) - F1 @ np.linalg.pinv(F1.T @ F1) @ F1.T
-    hat_alpha2 = X2.T @ M_F1 @ ones @ np.linalg.pinv(ones.T @ M_F1 @ ones)
-
-    full_X = np.hstack((ones, F1))
-    M_F = np.round(np.eye(T) - full_X @ np.linalg.pinv(full_X.T @ full_X) @ full_X.T,25)
-
-
-    error = X2.T @ M_F
-    error_Sigma = error @ error.T / (T - K - 1)
-    m = np.linalg.pinv(ones.T @ M_F1 @ ones)
-    var_alpha2 = np.diag(m) * error_Sigma
-    T_stat2 = hat_alpha2**2 /(np.diag(var_alpha2)[:,np.newaxis])
-
-    deg = T - K - 1
-
-    rho2 = 0
-    Rut = np.corrcoef(error)
-
-    pn = 0.1 / (N - 1)
-    thetan = (norm.ppf(1 - pn / 2)) ** 2
-    rho2 = (np.sum((Rut[Rut ** 2 * deg > thetan]) ** 2) - N) / 2
-    rho2 = rho2 * 2 / N / (N - 1)
-
-    PYk = N ** (-1 / 2) * (np.sum(T_stat2 - deg / (deg - 2))) / ((deg / (deg - 2)) * np.sqrt(2 * (deg - 1) / (deg - 4) * (1 + N * rho2)))
-
-    pvalue = 2 * (1 - norm.cdf(np.abs(PYk)))
-
-    return [pvalue, PYk]
-
-
-def GRS_test(F1, F2, test_asset, Lambda):
-  
-    if test_asset[0][0]:
-        Y = np.concatenate((F2, test_asset), axis=1)
-    else:
-        Y = F2
-    K = F1.shape[1]
-    N1 = Y.shape[1]
-    T = Y.shape[0]
-    
-    # GRS statistic
-    if F1.shape[1]==1:
-        W1 = 1/np.cov(F1.T)
-        mu1 = np.mean(F1)
-        SR1 = 1 + mu1.T * W1 * mu1
-    else:    
-        W1 = np.linalg.pinv(np.cov(F1.T))
-        mu1 = np.mean(F1, axis=0)
-        SR1 = 1 + mu1.T @ W1 @ mu1
-    
-    if (N1 + K) < T:
-        F = np.concatenate((Y, F1), axis=1)  
-    else:
-        F = np.concatenate((F2, F1), axis=1)  
-    W = np.linalg.pinv(np.cov(F.T))
-    mu = np.mean(F, axis=0)
-    SR = 1 + mu.T @ W @ mu
-    N = F.shape[1] - K
-    
-    GRSi = ((T - N - K) / N) * (SR / SR1 - 1)
-    qf0i = f.ppf(1 - Lambda, N, T - N - K)
-    pvalue = 1 - f.cdf(GRSi, N, T - N - K)
-    
-    return [pvalue, GRSi, qf0i]
 
 def Step_SR(X_full0, Lambda, Break, test_asset):
     T = X_full0.shape[0]
@@ -1492,3 +1605,6 @@ def evaluate2(model_fin,X_full_all, T_train,name1):
     # store_csv1 = files + '.csv'
 
     # invest_result_df.to_csv(store_csv1, index=True)
+    
+    
+    
